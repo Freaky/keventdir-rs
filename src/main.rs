@@ -47,7 +47,7 @@ impl DirWatcher {
                 ident: fd as usize,
                 filter: EVFILT_VNODE,
                 flags: EV_ADD | EV_CLEAR,
-                fflags: NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_RENAME | NOTE_CLOSE_WRITE,
+                fflags: NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_LINK | NOTE_RENAME | NOTE_CLOSE_WRITE,
                 data: 0,
                 udata: std::ptr::null_mut()
             };
@@ -76,7 +76,7 @@ impl DirWatcher {
         }
     }
 
-    fn next_event(&mut self) -> Option<&Path> {
+    fn next_event(&mut self) -> Option<(&Path, FilterFlag)> {
         let mut ev = kevent {
             ident: 0,
             filter: EVFILT_VNODE,
@@ -92,13 +92,26 @@ impl DirWatcher {
             return None;
         }
 
+        // println!("{:?}", ev);
+
         let fd = ev.ident as i32;
-        Some(&self.fd_to_path[&fd])
+        Some((&self.fd_to_path[&fd], ev.fflags))
 
         // println!("event on: {}", watching.get(&fd).map(|path| path.display()).unwrap());
     }
+
+    fn close(mut self) {
+        drop(&mut self);
+    }
 }
 
+impl Drop for DirWatcher {
+    fn drop(&mut self) {
+        for (fd, _path) in &self.fd_to_path {
+            unsafe { File::from_raw_fd(*fd) };
+        }
+    }
+}
 
 fn main() -> Result<(), String> {
     let mut watcher = DirWatcher::new().unwrap();
@@ -111,8 +124,8 @@ fn main() -> Result<(), String> {
         }
     }
 
-    while let Some(path) = watcher.next_event() {
-        println!("Event on {}", path.display());
+    while let Some((path, flags)) = watcher.next_event() {
+        println!("Event {:?} on {}", flags, path.display());
     }
 
     Ok(())
