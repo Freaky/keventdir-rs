@@ -5,7 +5,7 @@ extern crate walkdir;
 use kqueue_sys::constants::EventFilter::*;
 use kqueue_sys::constants::*;
 use kqueue_sys::*;
-use walkdir::{DirEntry, WalkDir};
+use walkdir::WalkDir;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -14,14 +14,21 @@ use std::path::{Path, PathBuf};
 
 use std::os::unix::io::{IntoRawFd, RawFd};
 
-struct DirWatcher {
+/// A very simple kevent-driven directory watcher.
+///
+/// Unfortunately kevent is quite expensive for watching file trees, costing an
+/// fd for each file and directory to be monitored.  Rename detection is handled
+/// by re-scanning the base monitoring directory.  Thus this should only be used
+/// on relatively small trees with relatively few renames.
+
+struct KEventDir {
     kq: libc::c_int,
     basedir: PathBuf,
     fd_to_path: HashMap<RawFd, PathBuf>,
     path_to_fd: BTreeMap<PathBuf, RawFd>,
 }
 
-impl DirWatcher {
+impl KEventDir {
     fn new<P: AsRef<Path>>(basedir: P) -> Option<Self> {
         let kq = unsafe { kqueue() };
         if kq < 0 {
@@ -113,7 +120,7 @@ impl DirWatcher {
     }
 }
 
-impl Iterator for DirWatcher {
+impl Iterator for KEventDir {
     type Item = (PathBuf, FilterFlag);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -161,7 +168,7 @@ impl Iterator for DirWatcher {
     }
 }
 
-impl Drop for DirWatcher {
+impl Drop for KEventDir {
     fn drop(&mut self) {
         for fd in self.fd_to_path.keys() {
             unsafe { libc::close(*fd) };
@@ -172,8 +179,8 @@ impl Drop for DirWatcher {
 }
 
 fn main() -> Result<(), String> {
-    let mut watcher = DirWatcher::new("test").unwrap();
-    let added = watcher.add_dir("test");
+    let mut watcher = KEventDir::new("test").unwrap();
+    let added = watcher.add_base();
     println!("Added {}", added);
 
     watcher
