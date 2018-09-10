@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
+use std::os::unix::io::{IntoRawFd, RawFd};
 
 struct DirWatcher {
     kq: libc::c_int,
@@ -75,7 +75,7 @@ impl DirWatcher {
         if let Some(fd) = self.path_to_fd.remove(path) {
             self.fd_to_path.remove(&fd);
             // last close deletes the event automatically
-            unsafe { File::from_raw_fd(fd) };
+            unsafe { libc::close(fd) };
             true
         } else {
             false
@@ -140,7 +140,7 @@ impl DirWatcher {
 impl Drop for DirWatcher {
     fn drop(&mut self) {
         for fd in self.fd_to_path.keys() {
-            unsafe { File::from_raw_fd(*fd) };
+            unsafe { libc::close(*fd) };
         }
     }
 }
