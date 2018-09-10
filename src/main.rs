@@ -145,22 +145,16 @@ impl Iterator for DirWatcher {
 
         let path = self.fd_to_path.get(&fd).map(|p| p.to_owned())?;
         if ev.fflags & NOTE_DELETE == NOTE_DELETE {
-            eprintln!("NOTE_DELETE, Removing {}", path.display());
             self.remove(&path);
         }
 
         if ev.fflags & NOTE_RENAME == NOTE_RENAME {
-            eprintln!("NOTE_RENAME, re-add {}", path.display());
-            let removed = self.remove_dir(&path);
-            let added = self.add_base();
-
-            eprintln!("removed {}, added {}", removed, added);
+            self.remove_dir(&path);
+            self.add_base();
         }
 
         if ev.fflags & NOTE_WRITE == NOTE_WRITE {
-            eprintln!("NOTE_WRITE, re-add potential dir {}", path.display());
-            let added = self.add_dir(&path);
-            eprintln!("Added {}", added);
+            self.add_dir(&path);
         }
 
         Some((path, ev.fflags))
@@ -172,6 +166,8 @@ impl Drop for DirWatcher {
         for fd in self.fd_to_path.keys() {
             unsafe { libc::close(*fd) };
         }
+
+        unsafe { libc::close(self.kq) };
     }
 }
 
@@ -190,10 +186,5 @@ fn main() -> Result<(), String> {
     println!("Removed {}", removed);
 
     watcher.close();
-
-    // while let Some((path, flags)) = watcher.next_event() {
-    //     println!("Event {:?} on {}", flags, path.display());
-    // }
-
     Ok(())
 }
