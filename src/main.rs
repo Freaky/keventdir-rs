@@ -101,7 +101,15 @@ impl DirWatcher {
         to_remove.iter().filter(|entry| self.remove(entry)).count()
     }
 
-    fn next_event(&mut self) -> Option<(&Path, FilterFlag)> {
+    fn close(self) {
+        drop(self);
+    }
+}
+
+impl Iterator for DirWatcher {
+    type Item = (PathBuf, FilterFlag);
+
+    fn next(&mut self) -> Option<Self::Item> {
         let mut ev = kevent {
             ident: 0,
             filter: EVFILT_VNODE,
@@ -127,13 +135,29 @@ impl DirWatcher {
         }
 
         let fd = ev.ident as i32;
-        self.fd_to_path
-            .get(&fd)
-            .map(|path| (path.as_ref(), ev.fflags))
-    }
 
-    fn close(self) {
-        drop(self);
+        let path = self.fd_to_path.get(&fd).map(|p| p.to_owned())?;
+        if ev.fflags & NOTE_DELETE == NOTE_DELETE {
+            eprintln!("NOTE_DELETE, Removing {}", path.display());
+            self.remove(&path);
+        }
+
+        if ev.fflags & NOTE_RENAME == NOTE_RENAME {
+            eprintln!("NOTE_RENAME, re-add {}", path.display());
+            let removed = self.remove_dir(&path);
+            // XXX: should have a base watch dir, need to go up ancestor to find dir rename
+            let added = self.add_dir(&path);
+
+            eprintln!("removed {}, added {}", removed, added);
+        }
+
+        if ev.fflags & NOTE_WRITE == NOTE_WRITE {
+            eprintln!("NOTE_WRITE, re-add potential dir {}", path.display());
+            let added = self.add_dir(&path);
+            eprintln!("Added {}", added);
+        }
+
+        Some((path, ev.fflags))
     }
 }
 
@@ -150,7 +174,9 @@ fn main() -> Result<(), String> {
     let added = watcher.add_dir("test");
     println!("Added {}", added);
 
-    println!("Event: {:?}", watcher.next_event());
+    watcher.by_ref().take(20).for_each(|(path, flags)| println!("{}: {:?}", path.display(), flags));
+
+    //println!("Event: {:?}", watcher.next());
     let removed = watcher.remove_dir("test");
     println!("Removed {}", removed);
 
