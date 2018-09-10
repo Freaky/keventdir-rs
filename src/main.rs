@@ -1,10 +1,10 @@
 extern crate kqueue_sys;
-extern crate walkdir;
 extern crate libc;
+extern crate walkdir;
 
-use kqueue_sys::constants::*;
+use kqueue::*;
 use kqueue_sys::constants::EventFilter::*;
-use kqueue_sys::*;
+use kqueue_sys::constants::*;
 use walkdir::{DirEntry, WalkDir};
 
 use std::collections::HashMap;
@@ -13,11 +13,10 @@ use std::path::{Path, PathBuf};
 
 use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
 
-
 struct DirWatcher {
     kq: libc::c_int,
     fd_to_path: HashMap<RawFd, PathBuf>,
-    path_to_fd: HashMap<PathBuf, RawFd>
+    path_to_fd: HashMap<PathBuf, RawFd>,
 }
 
 impl DirWatcher {
@@ -30,7 +29,7 @@ impl DirWatcher {
         Some(Self {
             kq,
             fd_to_path: HashMap::new(),
-            path_to_fd: HashMap::new()
+            path_to_fd: HashMap::new(),
         })
     }
 
@@ -40,31 +39,42 @@ impl DirWatcher {
             return false;
         }
 
-        if let Ok(fd) = File::open(path)
-                .map(|fd| fd.into_raw_fd())
-        {
+        if let Ok(fd) = File::open(path).map(|fd| fd.into_raw_fd()) {
             let mut event = kevent {
                 ident: fd as usize,
                 filter: EVFILT_VNODE,
                 flags: EV_ADD | EV_CLEAR,
-                fflags: NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_LINK | NOTE_RENAME | NOTE_CLOSE_WRITE,
+                fflags: NOTE_DELETE
+                    | NOTE_WRITE
+                    | NOTE_EXTEND
+                    | NOTE_LINK
+                    | NOTE_RENAME
+                    | NOTE_CLOSE_WRITE,
                 data: 0,
-                udata: std::ptr::null_mut()
+                udata: std::ptr::null_mut(),
             };
 
-            let v = unsafe { kevent(self.kq, &mut event, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+            let v = unsafe {
+                kevent(
+                    self.kq,
+                    &mut event,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            };
             if v != -1 {
                 self.fd_to_path.insert(fd, path.to_owned());
                 self.path_to_fd.insert(path.to_owned(), fd);
                 return true;
             }
-
         }
 
         false
     }
 
-    fn remove<P: AsRef<Path>>(&mut self, path:P) -> bool {
+    fn remove<P: AsRef<Path>>(&mut self, path: P) -> bool {
         let path = path.as_ref();
         if let Some(fd) = self.path_to_fd.remove(path) {
             self.fd_to_path.remove(&fd);
@@ -83,10 +93,19 @@ impl DirWatcher {
             flags: EV_ADD,
             fflags: NOTE_FFNOP,
             data: 0,
-            udata: std::ptr::null_mut()
+            udata: std::ptr::null_mut(),
         };
 
-        let ret = unsafe { kevent(self.kq, std::ptr::null_mut(), 0, &mut ev, 1, std::ptr::null()) };
+        let ret = unsafe {
+            kevent(
+                self.kq,
+                std::ptr::null_mut(),
+                0,
+                &mut ev,
+                1,
+                std::ptr::null(),
+            )
+        };
 
         if ret == -1 {
             return None;
