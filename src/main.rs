@@ -2,7 +2,7 @@ extern crate kqueue_sys;
 extern crate libc;
 extern crate walkdir;
 
-use kqueue::*;
+use kqueue_sys::*;
 use kqueue_sys::constants::EventFilter::*;
 use kqueue_sys::constants::*;
 use walkdir::{DirEntry, WalkDir};
@@ -48,8 +48,7 @@ impl DirWatcher {
                     | NOTE_WRITE
                     | NOTE_EXTEND
                     | NOTE_LINK
-                    | NOTE_RENAME
-                    | NOTE_CLOSE_WRITE,
+                    | NOTE_RENAME,
                 data: 0,
                 udata: std::ptr::null_mut(),
             };
@@ -111,12 +110,8 @@ impl DirWatcher {
             return None;
         }
 
-        // println!("{:?}", ev);
-
         let fd = ev.ident as i32;
-        Some((&self.fd_to_path[&fd], ev.fflags))
-
-        // println!("event on: {}", watching.get(&fd).map(|path| path.display()).unwrap());
+        self.fd_to_path.get(&fd).map(|path| (path.as_ref(), ev.fflags))
     }
 
     fn close(mut self) {
@@ -135,11 +130,9 @@ impl Drop for DirWatcher {
 fn main() -> Result<(), String> {
     let mut watcher = DirWatcher::new().unwrap();
 
-    for entry in WalkDir::new("test").into_iter() {
-        if let Ok(entry) = entry {
-            if watcher.add(entry.path()) {
-                println!("Watch: {}", entry.path().display());
-            }
+    for entry in WalkDir::new("test").into_iter().filter_map(|entry| entry.ok()) {
+        if watcher.add(entry.path()) {
+            println!("Watch: {}", entry.path().display());
         }
     }
 
