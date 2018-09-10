@@ -1,0 +1,8 @@
+[package]
+name = "watchdir-rs"
+version = "0.1.0"
+authors = ["Thomas Hurst <tom@hur.st>"]
+
+[dependencies]
+walkdir = "2.2.5"
+kqueue-sys = "0.1.3"
