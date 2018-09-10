@@ -180,7 +180,10 @@ fn main() -> Result<(), String> {
     let added = watcher.add_dir("test");
     println!("Added {}", added);
 
-    watcher.by_ref().take(20).for_each(|(path, flags)| println!("{}: {:?}", path.display(), flags));
+    watcher
+        .by_ref()
+        .take(20)
+        .for_each(|(path, flags)| println!("{}: {:?}", path.display(), flags));
 
     //println!("Event: {:?}", watcher.next());
     let removed = watcher.remove_dir("test");
