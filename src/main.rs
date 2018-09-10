@@ -16,12 +16,13 @@ use std::os::unix::io::{IntoRawFd, RawFd};
 
 struct DirWatcher {
     kq: libc::c_int,
+    basedir: PathBuf,
     fd_to_path: HashMap<RawFd, PathBuf>,
     path_to_fd: BTreeMap<PathBuf, RawFd>,
 }
 
 impl DirWatcher {
-    fn new() -> Option<Self> {
+    fn new<P: AsRef<Path>>(basedir: P) -> Option<Self> {
         let kq = unsafe { kqueue() };
         if kq < 0 {
             return None;
@@ -29,9 +30,15 @@ impl DirWatcher {
 
         Some(Self {
             kq,
+            basedir: basedir.as_ref().to_owned(),
             fd_to_path: HashMap::new(),
             path_to_fd: BTreeMap::new(),
         })
+    }
+
+    fn add_base(&mut self) -> usize {
+        let base = self.basedir.to_owned();
+        self.add_dir(&base)
     }
 
     fn add<P: AsRef<Path>>(&mut self, path: P) -> bool {
@@ -145,8 +152,7 @@ impl Iterator for DirWatcher {
         if ev.fflags & NOTE_RENAME == NOTE_RENAME {
             eprintln!("NOTE_RENAME, re-add {}", path.display());
             let removed = self.remove_dir(&path);
-            // XXX: should have a base watch dir, need to go up ancestor to find dir rename
-            let added = self.add_dir(&path);
+            let added = self.add_base();
 
             eprintln!("removed {}, added {}", removed, added);
         }
@@ -170,7 +176,7 @@ impl Drop for DirWatcher {
 }
 
 fn main() -> Result<(), String> {
-    let mut watcher = DirWatcher::new().unwrap();
+    let mut watcher = DirWatcher::new("test").unwrap();
     let added = watcher.add_dir("test");
     println!("Added {}", added);
 
