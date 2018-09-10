@@ -83,7 +83,6 @@ impl DirWatcher {
     }
 
     fn add_dir<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        let mut added = 0;
         WalkDir::new(path)
             .into_iter()
             .filter_map(|entry| entry.ok())
@@ -133,14 +132,14 @@ impl DirWatcher {
             .map(|path| (path.as_ref(), ev.fflags))
     }
 
-    fn close(mut self) {
-        drop(&mut self);
+    fn close(self) {
+        drop(self);
     }
 }
 
 impl Drop for DirWatcher {
     fn drop(&mut self) {
-        for (fd, _path) in &self.fd_to_path {
+        for fd in self.fd_to_path.keys() {
             unsafe { File::from_raw_fd(*fd) };
         }
     }
@@ -150,18 +149,12 @@ fn main() -> Result<(), String> {
     let mut watcher = DirWatcher::new().unwrap();
     let added = watcher.add_dir("test");
     println!("Added {}", added);
+
     println!("Event: {:?}", watcher.next_event());
     let removed = watcher.remove_dir("test");
     println!("Removed {}", removed);
 
-    // for entry in WalkDir::new("test")
-    //     .into_iter()
-    //     .filter_map(|entry| entry.ok())
-    // {
-    //     if watcher.add(entry.path()) {
-    //         println!("Watch: {}", entry.path().display());
-    //     }
-    // }
+    watcher.close();
 
     // while let Some((path, flags)) = watcher.next_event() {
     //     println!("Event {:?} on {}", flags, path.display());
