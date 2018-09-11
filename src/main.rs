@@ -108,8 +108,9 @@ impl KEventDir {
         let to_remove = self
             .path_to_fd
             .range(path.as_ref().to_path_buf()..)
-            .map(|(p, _fd)| p.clone())
+            .map(|(p, _fd)| p)
             .take_while(|p| p.starts_with(&path))
+            .cloned()
             .collect::<Vec<PathBuf>>();
 
         to_remove.iter().filter(|entry| self.remove(entry)).count()
