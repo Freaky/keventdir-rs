@@ -10,10 +10,8 @@ use walkdir::WalkDir;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fs::File;
-use std::path::{Path, PathBuf};
-
-
 use std::os::unix::io::{IntoRawFd, RawFd};
+use std::path::{Path, PathBuf};
 
 /// A very simple kevent-driven directory watcher.
 ///
@@ -72,7 +70,12 @@ impl KEventDir {
                 ident: fd as usize,
                 filter: EVFILT_VNODE,
                 flags: EV_ADD | EV_CLEAR,
-                fflags: NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_LINK | NOTE_REVOKE | NOTE_RENAME,
+                fflags: NOTE_DELETE
+                    | NOTE_WRITE
+                    | NOTE_EXTEND
+                    | NOTE_LINK
+                    | NOTE_REVOKE
+                    | NOTE_RENAME,
                 data: 0,
                 udata: std::ptr::null_mut(),
             };
