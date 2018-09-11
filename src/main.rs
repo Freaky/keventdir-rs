@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::ffi::OsString;
 
 use std::os::unix::io::{IntoRawFd, RawFd};
 
@@ -180,18 +181,19 @@ impl Drop for KEventDir {
 }
 
 fn main() -> Result<(), String> {
-    let mut watcher = KEventDir::new("test").unwrap();
-    let added = watcher.add_base();
-    println!("Added {}", added);
+    let args = std::env::args_os().skip(1).collect::<Vec<OsString>>();
+    let mut watcher = KEventDir::new(args.get(0).expect("need an argument")).unwrap();
+    let mut added = watcher.add_base();
+    added += args.iter().skip(1).map(|arg| watcher.add_dir(arg)).sum::<usize>();
+    println!("Monitoring {} descriptors", added);
 
     watcher
         .by_ref()
         .take(20)
         .for_each(|(path, flags)| println!("{}: {:?}", path.display(), flags));
 
-    //println!("Event: {:?}", watcher.next());
-    let removed = watcher.remove_dir("test");
-    println!("Removed {}", removed);
+    let removed = args.iter().map(|arg| watcher.remove_dir(arg)).sum::<usize>();
+    println!("Dropped {} descriptors", removed);
 
     watcher.close();
     Ok(())
