@@ -59,7 +59,7 @@ impl KEventDir {
                 ident: fd as usize,
                 filter: EVFILT_VNODE,
                 flags: EV_ADD | EV_CLEAR,
-                fflags: NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_LINK | NOTE_RENAME,
+                fflags: NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_LINK | NOTE_REVOKE | NOTE_RENAME,
                 data: 0,
                 udata: std::ptr::null_mut(),
             };
@@ -151,16 +151,16 @@ impl Iterator for KEventDir {
         let fd = ev.ident as i32;
 
         let path = self.fd_to_path.get(&fd).map(|p| p.to_owned())?;
-        if ev.fflags & NOTE_DELETE == NOTE_DELETE {
+        if ev.fflags.intersects(NOTE_DELETE | NOTE_REVOKE) {
             self.remove(&path);
         }
 
-        if ev.fflags & NOTE_RENAME == NOTE_RENAME {
+        if ev.fflags.contains(NOTE_RENAME) {
             self.remove_dir(&path);
             self.add_base();
         }
 
-        if ev.fflags & NOTE_WRITE == NOTE_WRITE {
+        if ev.fflags.intersects(NOTE_WRITE | NOTE_LINK) {
             self.add_dir(&path);
         }
 
