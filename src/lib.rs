@@ -22,11 +22,23 @@ use std::os::unix::io::{IntoRawFd, RawFd};
 /// by re-scanning the base monitoring directory.  Thus this should only be used
 /// on relatively small trees with relatively few renames.
 
+#[derive(Debug)]
 pub struct KEventDir {
     kq: libc::c_int,
     basedir: PathBuf,
     fd_to_path: HashMap<RawFd, PathBuf>,
     path_to_fd: BTreeMap<PathBuf, RawFd>,
+}
+
+#[derive(Debug)]
+pub enum EventType {
+    Delete,
+    Extend,
+    Link,
+    Other,
+    Rename,
+    Revoke,
+    Write,
 }
 
 impl KEventDir {
@@ -123,7 +135,7 @@ impl KEventDir {
 }
 
 impl Iterator for KEventDir {
-    type Item = (PathBuf, FilterFlag);
+    type Item = (PathBuf, EventType);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut ev = kevent {
@@ -153,20 +165,28 @@ impl Iterator for KEventDir {
         let fd = ev.ident as i32;
 
         let path = self.fd_to_path.get(&fd).map(|p| p.to_owned())?;
-        if ev.fflags.intersects(NOTE_DELETE | NOTE_REVOKE) {
-            self.remove(&path);
-        }
 
-        if ev.fflags.contains(NOTE_RENAME) {
+        let kind = if ev.fflags.contains(NOTE_DELETE) {
+            self.remove(&path);
+            EventType::Delete
+        } else if ev.fflags.contains(NOTE_REVOKE) {
+            self.remove_dir(&path);
+            EventType::Revoke
+        } else if ev.fflags.contains(NOTE_RENAME) {
             self.remove_dir(&path);
             self.add_base();
-        }
-
-        if ev.fflags.intersects(NOTE_WRITE | NOTE_LINK) {
+            EventType::Rename
+        } else if ev.fflags.contains(NOTE_LINK) {
             self.add_dir(&path);
-        }
+            EventType::Link
+        } else if ev.fflags.contains(NOTE_WRITE) {
+            self.add_dir(&path);
+            EventType::Write
+        } else {
+            EventType::Other
+        };
 
-        Some((path, ev.fflags))
+        Some((path, kind))
     }
 }
 
