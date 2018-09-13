@@ -20,9 +20,9 @@ fn main() {
     watcher.add("config.toml").expect("returns io::Result"); // watch this one file
     watcher.add_dir("static"); // watch this directory tree, returns number added
 
-    // KEventDir implements Iterator over io::Result<(PathBuf, keventdir::Event)>
-    for (path, event) in watcher.by_ref().filter_map(|ev| ev.ok()).take(10) {
-        println!("{}: {:?}", path.display(), event);
+    // KEventDir implements Iterator over io::Result<keventdir::Event>
+    for ev in watcher.by_ref().filter_map(|ev| ev.ok()).take(10) {
+        println!("{}: {:?}", ev.path.display(), ev.kind);
     }
 }
 ```
