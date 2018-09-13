@@ -94,15 +94,18 @@ impl KEventDir {
                 )
             };
 
-            if v != -1 {
-                self.fd_to_path.insert(fd, path.to_owned());
-                self.path_to_fd.insert(path.to_owned(), fd);
-                Ok(true)
-            } else {
+            if v == -1 {
+                // Changelists get applied even on EINTR.
                 let err = io::Error::last_os_error();
-                unsafe { libc::close(fd) };
-                Err(err)
+                if err.kind() != io::ErrorKind::Interrupted {
+                    unsafe { libc::close(fd) };
+                    return Err(err);
+                }
             }
+
+            self.fd_to_path.insert(fd, path.to_owned());
+            self.path_to_fd.insert(path.to_owned(), fd);
+            Ok(true)
         })
     }
 
