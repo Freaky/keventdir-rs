@@ -177,40 +177,40 @@ impl Iterator for KEventDir {
                     }
                 },
                 0 => return None,
-                1 => break,
+                1 => (),
                 _ => panic!("Invalid return from kevent: {}", ret),
             }
+
+            if ev.flags == EV_ERROR {
+                return Some(Err(io::Error::from_raw_os_error(ev.data as i32)));
+            }
+
+            let fd = ev.ident as i32;
+
+            if let Some(path) = self.fd_to_path.get(&fd).map(|p| p.to_owned()) {
+                let kind = if ev.fflags.contains(NOTE_DELETE) {
+                    self.remove(&path);
+                    EventType::Delete
+                } else if ev.fflags.contains(NOTE_REVOKE) {
+                    self.remove_dir(&path);
+                    EventType::Revoke
+                } else if ev.fflags.contains(NOTE_RENAME) {
+                    self.remove_dir(&path);
+                    self.add_base();
+                    EventType::Rename
+                } else if ev.fflags.contains(NOTE_LINK) {
+                    self.add_dir(&path);
+                    EventType::Link
+                } else if ev.fflags.contains(NOTE_WRITE) {
+                    self.add_dir(&path);
+                    EventType::Write
+                } else {
+                    EventType::Other
+                };
+
+                return Some(Ok((path, kind)))
+            }
         }
-
-        if ev.flags == EV_ERROR {
-            return Some(Err(io::Error::from_raw_os_error(ev.data as i32)));
-        }
-
-        let fd = ev.ident as i32;
-
-        let path = self.fd_to_path.get(&fd).map(|p| p.to_owned())?;
-
-        let kind = if ev.fflags.contains(NOTE_DELETE) {
-            self.remove(&path);
-            EventType::Delete
-        } else if ev.fflags.contains(NOTE_REVOKE) {
-            self.remove_dir(&path);
-            EventType::Revoke
-        } else if ev.fflags.contains(NOTE_RENAME) {
-            self.remove_dir(&path);
-            self.add_base();
-            EventType::Rename
-        } else if ev.fflags.contains(NOTE_LINK) {
-            self.add_dir(&path);
-            EventType::Link
-        } else if ev.fflags.contains(NOTE_WRITE) {
-            self.add_dir(&path);
-            EventType::Write
-        } else {
-            EventType::Other
-        };
-
-        Some(Ok((path, kind)))
     }
 }
 
