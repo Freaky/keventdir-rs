@@ -18,7 +18,7 @@ fn main() -> Result<(), String> {
         .by_ref()
         .take(20)
         .map(|ev| ev.unwrap())
-        .for_each(|(path, flags)| println!("{}: {:?}", path.display(), flags));
+        .for_each(|ev| println!("{}: {:?}", ev.path.display(), ev.kind));
 
     let removed = args
         .iter()

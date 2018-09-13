@@ -30,7 +30,7 @@ pub struct KEventDir {
 }
 
 #[derive(Debug)]
-pub enum EventType {
+pub enum EventKind {
     Delete,
     Extend,
     Link,
@@ -38,6 +38,12 @@ pub enum EventType {
     Rename,
     Revoke,
     Write,
+}
+
+#[derive(Debug)]
+pub struct Event {
+    pub path: PathBuf,
+    pub kind: EventKind
 }
 
 impl KEventDir {
@@ -145,7 +151,7 @@ impl KEventDir {
 }
 
 impl Iterator for KEventDir {
-    type Item = io::Result<(PathBuf, EventType)>;
+    type Item = io::Result<Event>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut ev = kevent {
@@ -190,25 +196,25 @@ impl Iterator for KEventDir {
             if let Some(path) = self.fd_to_path.get(&fd).map(|p| p.to_owned()) {
                 let kind = if ev.fflags.contains(NOTE_DELETE) {
                     self.remove(&path);
-                    EventType::Delete
+                    EventKind::Delete
                 } else if ev.fflags.contains(NOTE_REVOKE) {
                     self.remove_dir(&path);
-                    EventType::Revoke
+                    EventKind::Revoke
                 } else if ev.fflags.contains(NOTE_RENAME) {
                     self.remove_dir(&path);
                     self.add_base();
-                    EventType::Rename
+                    EventKind::Rename
                 } else if ev.fflags.contains(NOTE_LINK) {
                     self.add_dir(&path);
-                    EventType::Link
+                    EventKind::Link
                 } else if ev.fflags.contains(NOTE_WRITE) {
                     self.add_dir(&path);
-                    EventType::Write
+                    EventKind::Write
                 } else {
-                    EventType::Other
+                    EventKind::Other
                 };
 
-                return Some(Ok((path, kind)))
+                return Some(Ok(Event { path, kind }))
             }
         }
     }
@@ -216,10 +222,9 @@ impl Iterator for KEventDir {
 
 impl Drop for KEventDir {
     fn drop(&mut self) {
+        unsafe { libc::close(self.kq) };
         for fd in self.fd_to_path.keys() {
             unsafe { libc::close(*fd) };
         }
-
-        unsafe { libc::close(self.kq) };
     }
 }
