@@ -110,15 +110,13 @@ impl KEventDir {
     }
 
     pub fn remove<P: AsRef<Path>>(&mut self, path: P) -> bool {
-        let path = path.as_ref();
-        if let Some(fd) = self.path_to_fd.remove(path) {
-            self.fd_to_path.remove(&fd);
-            // last close deletes the event automatically
-            unsafe { libc::close(fd) };
-            true
-        } else {
-            false
-        }
+        self.path_to_fd
+            .remove(path.as_ref())
+            .map(|fd| {
+                self.fd_to_path.remove(&fd);
+                unsafe { libc::close(fd) }; // removes kevent for us
+            })
+            .is_some()
     }
 
     pub fn add_dir<P: AsRef<Path>>(&mut self, path: P) -> usize {
