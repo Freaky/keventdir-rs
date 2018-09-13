@@ -144,7 +144,7 @@ impl KEventDir {
 }
 
 impl Iterator for KEventDir {
-    type Item = (PathBuf, EventType);
+    type Item = io::Result<(PathBuf, EventType)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut ev = kevent {
@@ -156,19 +156,26 @@ impl Iterator for KEventDir {
             udata: std::ptr::null_mut(),
         };
 
-        let ret = unsafe {
-            kevent(
-                self.kq,
-                std::ptr::null_mut(),
-                0,
-                &mut ev,
-                1,
-                std::ptr::null(),
-            )
-        };
+        loop {
+            let ret = unsafe {
+                kevent(
+                    self.kq,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut ev,
+                    1,
+                    std::ptr::null(),
+                )
+            };
 
-        if ret == -1 {
-            return None;
+            if ret == -1 {
+                let err = io::Error::last_os_error();
+                if err.kind() != io::ErrorKind::Interrupted {
+                    return Some(Err(err));
+                }
+            } else {
+                break;
+            }
         }
 
         let fd = ev.ident as i32;
@@ -195,7 +202,7 @@ impl Iterator for KEventDir {
             EventType::Other
         };
 
-        Some((path, kind))
+        Some(Ok((path, kind)))
     }
 }
 

@@ -17,6 +17,7 @@ fn main() -> Result<(), String> {
     watcher
         .by_ref()
         .take(20)
+        .map(|ev| ev.unwrap())
         .for_each(|(path, flags)| println!("{}: {:?}", path.display(), flags));
 
     let removed = args
