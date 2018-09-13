@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
+use std::io;
 
 /// A very simple kevent-driven directory watcher.
 ///
@@ -40,13 +41,13 @@ pub enum EventType {
 }
 
 impl KEventDir {
-    pub fn new<P: AsRef<Path>>(basedir: P) -> Option<Self> {
+    pub fn new<P: AsRef<Path>>(basedir: P) -> io::Result<Self> {
         let kq = unsafe { kqueue() };
         if kq < 0 {
-            return None;
+            return Err(io::Error::last_os_error());
         }
 
-        Some(Self {
+        Ok(Self {
             kq,
             basedir: basedir.as_ref().to_owned(),
             fd_to_path: HashMap::new(),
@@ -59,13 +60,15 @@ impl KEventDir {
         self.add_dir(&base)
     }
 
-    pub fn add<P: AsRef<Path>>(&mut self, path: P) -> bool {
+    pub fn add<P: AsRef<Path>>(&mut self, path: P) -> io::Result<bool> {
         let path = path.as_ref();
+
         if self.path_to_fd.contains_key(path) {
-            return false;
+            return Ok(false);
         }
 
-        if let Ok(fd) = File::open(path).map(|fd| fd.into_raw_fd()) {
+        File::open(path).and_then(|file| {
+            let fd = file.into_raw_fd();
             let event = kevent {
                 ident: fd as usize,
                 filter: EVFILT_VNODE,
@@ -90,16 +93,17 @@ impl KEventDir {
                     std::ptr::null(),
                 )
             };
+
             if v != -1 {
                 self.fd_to_path.insert(fd, path.to_owned());
                 self.path_to_fd.insert(path.to_owned(), fd);
-                return true;
+                Ok(true)
             } else {
+                let err = io::Error::last_os_error();
                 unsafe { libc::close(fd) };
+                Err(err)
             }
-        }
-
-        false
+        })
     }
 
     pub fn remove<P: AsRef<Path>>(&mut self, path: P) -> bool {
@@ -118,7 +122,7 @@ impl KEventDir {
         WalkDir::new(path)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| self.add(entry.path()))
+            .filter(|entry| self.add(entry.path()).unwrap_or(false))
             .count()
     }
 
