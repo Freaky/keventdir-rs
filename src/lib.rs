@@ -66,7 +66,7 @@ impl KEventDir {
         }
 
         if let Ok(fd) = File::open(path).map(|fd| fd.into_raw_fd()) {
-            let mut event = kevent {
+            let event = kevent {
                 ident: fd as usize,
                 filter: EVFILT_VNODE,
                 flags: EV_ADD | EV_CLEAR,
@@ -83,7 +83,7 @@ impl KEventDir {
             let v = unsafe {
                 kevent(
                     self.kq,
-                    &mut event,
+                    &event,
                     1,
                     std::ptr::null_mut(),
                     0,
