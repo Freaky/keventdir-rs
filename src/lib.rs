@@ -94,6 +94,8 @@ impl KEventDir {
                 self.fd_to_path.insert(fd, path.to_owned());
                 self.path_to_fd.insert(path.to_owned(), fd);
                 return true;
+            } else {
+                unsafe { libc::close(fd) };
             }
         }
 
