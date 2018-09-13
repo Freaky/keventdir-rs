@@ -168,14 +168,21 @@ impl Iterator for KEventDir {
                 )
             };
 
-            if ret == -1 {
-                let err = io::Error::last_os_error();
-                if err.kind() != io::ErrorKind::Interrupted {
-                    return Some(Err(err));
-                }
-            } else {
-                break;
+            match ret {
+                -1 => {
+                    let err = io::Error::last_os_error();
+                    if err.kind() != io::ErrorKind::Interrupted {
+                        return Some(Err(err));
+                    }
+                },
+                0 => return None,
+                1 => break,
+                _ => panic!("Invalid return from kevent: {}", ret),
             }
+        }
+
+        if ev.flags == EV_ERROR {
+            return Some(Err(io::Error::from_raw_os_error(ev.data as i32)));
         }
 
         let fd = ev.ident as i32;
