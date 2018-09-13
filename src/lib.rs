@@ -10,9 +10,9 @@ use walkdir::WalkDir;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fs::File;
+use std::io;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
-use std::io;
 
 /// A very simple kevent-driven directory watcher.
 ///
