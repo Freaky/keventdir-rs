@@ -17,11 +17,11 @@ fn main() {
 
     // rename detection is only partial outside the base directory: old files are
     // removed but only the base directory is checked for new ones.
-    watcher.add("config.toml"); // watch this one file
-    watcher.add_dir("static"); // watch this directory tree
+    watcher.add("config.toml").expect("returns io::Result"); // watch this one file
+    watcher.add_dir("static"); // watch this directory tree, returns number added
 
-    // KEventDir implements Iterator
-    for (path, event) in watcher.by_ref().take(10) {
+    // KEventDir implements Iterator over io::Result<(PathBuf, keventdir::Event)>
+    for (path, event) in watcher.by_ref().filter_map(|ev| ev.ok()).take(10) {
         println!("{}: {:?}", path.display(), event);
     }
 }
@@ -74,10 +74,12 @@ number.
 
 ## Status
 
-This is just a quick proof-of-concept.  Use [notify](https://github.com/passcod/notify)
-if you need to use something production-ready and portable.  Note it currently
-uses polling on BSD's, so be wary of using it on large directories or in cases
-where low latency is desired.
+This is just a quick proof-of-concept.  You might find it useful or interesting,
+but if it breaks you get to keep all the pieces.
+
+Use [notify](https://github.com/passcod/notify) if you need to use something
+production-ready and portable, though note it currently uses polling on BSD's:
+i.e. it does a `walkdir` every few seconds.
 
 ## Caveats
 
