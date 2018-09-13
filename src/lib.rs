@@ -1,11 +1,13 @@
 extern crate kqueue_sys;
 extern crate libc;
 extern crate walkdir;
+extern crate itertools;
 
 use kqueue_sys::constants::EventFilter::*;
 use kqueue_sys::constants::*;
 use kqueue_sys::*;
 use walkdir::WalkDir;
+use itertools::Itertools;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -60,44 +62,71 @@ impl KEventDir {
     }
 
     pub fn add<P: AsRef<Path>>(&mut self, path: P) -> bool {
-        let path = path.as_ref();
-        if self.path_to_fd.contains_key(path) {
-            return false;
-        }
+        self.add_iter(std::iter::once(path.as_ref())) == 1
+    }
 
-        if let Ok(fd) = File::open(path).map(|fd| fd.into_raw_fd()) {
-            let mut event = kevent {
-                ident: fd as usize,
-                filter: EVFILT_VNODE,
-                flags: EV_ADD | EV_CLEAR,
-                fflags: NOTE_DELETE
-                    | NOTE_WRITE
-                    | NOTE_EXTEND
-                    | NOTE_LINK
-                    | NOTE_REVOKE
-                    | NOTE_RENAME,
-                data: 0,
-                udata: std::ptr::null_mut(),
-            };
+    pub fn add_iter(&mut self, it: impl Iterator<Item = impl Into<PathBuf>>) -> usize {
+        let mut kevs: Vec<kevent> = vec![];
+        let mut new: Vec<(PathBuf, RawFd)> = vec![];
+        let mut added = 0;
 
-            let v = unsafe {
-                kevent(
-                    self.kq,
-                    &mut event,
-                    1,
-                    std::ptr::null_mut(),
-                    0,
-                    std::ptr::null(),
-                )
-            };
-            if v != -1 {
-                self.fd_to_path.insert(fd, path.to_owned());
-                self.path_to_fd.insert(path.to_owned(), fd);
-                return true;
+        for chunk in it.chunks(4096).into_iter() {
+            for path in chunk {
+                let path = path.into();
+                if self.path_to_fd.contains_key(&path) {
+                    continue;
+                }
+
+                let fd = File::open(&path).map(|file| file.into_raw_fd()).unwrap_or(0);
+
+                if fd == 0 {
+                    continue;
+                }
+
+                kevs.push(kevent {
+                            ident: fd as usize,
+                            filter: EVFILT_VNODE,
+                            flags: EV_ADD | EV_CLEAR,
+                            fflags: NOTE_DELETE
+                                | NOTE_WRITE
+                                | NOTE_EXTEND
+                                | NOTE_LINK
+                                | NOTE_REVOKE
+                                | NOTE_RENAME,
+                            data: 0,
+                            udata: std::ptr::null_mut(),
+                        });
+                new.push((path, fd));
+            }
+
+            if !kevs.is_empty() {
+                let v = unsafe {
+                    kevent(
+                        self.kq,
+                        kevs.as_ptr(),
+                        kevs.len() as i32,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                };
+                kevs.clear();
+
+                if v != -1 {
+                    added += new.len();
+                    for (path, fd) in new.drain(..) {
+                        self.path_to_fd.insert(path.to_path_buf(), fd);
+                        self.fd_to_path.insert(fd, path);
+                    }
+                } else {
+                    for (_path, fd) in new.drain(..) {
+                        unsafe { libc::close(fd) };
+                    }
+                }
             }
         }
 
-        false
+        added
     }
 
     pub fn remove<P: AsRef<Path>>(&mut self, path: P) -> bool {
@@ -113,11 +142,10 @@ impl KEventDir {
     }
 
     pub fn add_dir<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        WalkDir::new(path)
+        self.add_iter(WalkDir::new(path)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| self.add(entry.path()))
-            .count()
+            .map(|entry| entry.into_path()))
     }
 
     pub fn remove_dir<P: AsRef<Path>>(&mut self, path: P) -> usize {
