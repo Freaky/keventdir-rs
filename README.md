@@ -12,13 +12,14 @@ extern crate keventdir;
 use keventdir::KEventDir;
 
 fn main() {
-    let watcher = KEventDir::new("content").expect("kqueue");
-    watcher.add_base(); // scan some_dir and add to kevent: watcher is inert otherwise
+    let watcher = KEventDir::new().expect("kqueue");
+    watcher.add_recursive_rescan("content"); // rescan this dir on file rename
+    watcher.rescan(); // actually add that directory, returning number of new files
 
     // rename detection is only partial outside the base directory: old files are
     // removed but only the base directory is checked for new ones.
     watcher.add("config.toml").expect("returns io::Result"); // watch this one file
-    watcher.add_dir("static"); // watch this directory tree, returns number added
+    watcher.add_recursive("static"); // watch this directory tree, returns number added
 
     // KEventDir implements Iterator over io::Result<keventdir::Event>
     for ev in watcher.by_ref().filter_map(|ev| ev.ok()).take(10) {
@@ -57,20 +58,10 @@ content: Link
 content/bam: Delete
 ```
 
-It's a bit rough-and-ready: new files show as writes to their containing
-directory, which triggers a re-scan of that directory.  New files will be added
-to monitoring, but not reported as events unless they trigger some themselves
-afterwards.
-
-Similarly deletes appear as events on the file themselves, but also the
-directory they're in.
-
-Directories trigger changes in link count, hence the `Link` event.
-
-Rename events only trigger on the original filename: monitoring will be removed
-for the old name, and the base directory re-scanned in attempt to relocate the
-new file.  It is not yet reported - should be doable by tracking the inode
-number.
+I'm still pinning down a sensible API.  Renames and new file handling is less
+than ideal, and it probably needs to be broken up into higher and lower-level
+interfaces, one with basic efficient kqueue stuff and one with debounced events
+and more expensive stuff like adding new files on rename.
 
 ## Status
 

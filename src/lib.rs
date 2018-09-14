@@ -16,15 +16,15 @@ use std::path::{Path, PathBuf};
 
 /// A very simple kevent-driven directory watcher.
 ///
-/// Unfortunately kevent is quite expensive for watching file trees, costing an
+/// Unfortunately kevent is quite expensive for watching file dirs, costing an
 /// fd for each file and directory to be monitored.  Rename detection is handled
 /// by re-scanning the base monitoring directory.  Thus this should only be used
-/// on relatively small trees with relatively few renames.
+/// on relatively small dirs with relatively few renames.
 
 #[derive(Debug)]
 pub struct KEventDir {
     kq: libc::c_int,
-    basedir: PathBuf,
+    scan: Vec<PathBuf>,
     fd_to_path: HashMap<RawFd, PathBuf>,
     path_to_fd: BTreeMap<PathBuf, RawFd>,
 }
@@ -47,7 +47,7 @@ pub struct Event {
 }
 
 impl KEventDir {
-    pub fn new<P: AsRef<Path>>(basedir: P) -> io::Result<Self> {
+    pub fn new() -> io::Result<Self> {
         let kq = unsafe { kqueue() };
         if kq < 0 {
             return Err(io::Error::last_os_error());
@@ -55,15 +55,28 @@ impl KEventDir {
 
         Ok(Self {
             kq,
-            basedir: basedir.as_ref().to_owned(),
+            scan: Vec::new(),
             fd_to_path: HashMap::new(),
             path_to_fd: BTreeMap::new(),
         })
     }
 
-    pub fn add_base(&mut self) -> usize {
-        let base = self.basedir.to_owned();
-        self.add_dir(&base)
+    pub fn add_recursive_rescan<P: AsRef<Path>>(&mut self, path: P) -> bool {
+        let path = path.as_ref().to_owned();
+        if self.scan.contains(&path) {
+            false
+        } else {
+            self.scan.push(path);
+            true
+        }
+    }
+
+    pub fn rescan(&mut self) -> usize {
+        let mut added = 0;
+        for dir in self.scan.clone().iter() {
+            added += self.add_recursive(&dir)
+        }
+        added
     }
 
     pub fn add<P: AsRef<Path>>(&mut self, path: P) -> io::Result<bool> {
@@ -125,7 +138,7 @@ impl KEventDir {
             .is_some()
     }
 
-    pub fn add_dir<P: AsRef<Path>>(&mut self, path: P) -> usize {
+    pub fn add_recursive<P: AsRef<Path>>(&mut self, path: P) -> usize {
         WalkDir::new(path)
             .into_iter()
             .filter_map(|entry| entry.ok())
@@ -133,7 +146,7 @@ impl KEventDir {
             .count()
     }
 
-    pub fn remove_dir<P: AsRef<Path>>(&mut self, path: P) -> usize {
+    pub fn remove_recursive<P: AsRef<Path>>(&mut self, path: P) -> usize {
         let to_remove = self
             .path_to_fd
             .range(path.as_ref().to_path_buf()..)
@@ -198,17 +211,17 @@ impl Iterator for KEventDir {
                     self.remove(&path);
                     EventKind::Delete
                 } else if ev.fflags.contains(NOTE_REVOKE) {
-                    self.remove_dir(&path);
+                    self.remove_recursive(&path);
                     EventKind::Revoke
                 } else if ev.fflags.contains(NOTE_RENAME) {
-                    self.remove_dir(&path);
-                    self.add_base();
+                    self.remove_recursive(&path);
+                    self.rescan();
                     EventKind::Rename
                 } else if ev.fflags.contains(NOTE_LINK) {
-                    self.add_dir(&path);
+                    self.add_recursive(&path);
                     EventKind::Link
                 } else if ev.fflags.contains(NOTE_WRITE) {
-                    self.add_dir(&path);
+                    self.add_recursive(&path);
                     EventKind::Write
                 } else {
                     EventKind::Other
