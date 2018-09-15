@@ -13,6 +13,7 @@ use std::fs::File;
 use std::io;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// A very simple kevent-driven directory watcher.
 ///
@@ -43,7 +44,7 @@ pub enum EventKind {
 #[derive(Debug)]
 pub struct Event {
     pub path: PathBuf,
-    pub kind: EventKind
+    pub kind: EventKind,
 }
 
 impl KEventDir {
@@ -134,8 +135,7 @@ impl KEventDir {
             .map(|fd| {
                 self.fd_to_path.remove(&fd);
                 unsafe { libc::close(fd) }; // removes kevent for us
-            })
-            .is_some()
+            }).is_some()
     }
 
     pub fn add_recursive<P: AsRef<Path>>(&mut self, path: P) -> usize {
@@ -158,15 +158,7 @@ impl KEventDir {
         to_remove.iter().filter(|entry| self.remove(entry)).count()
     }
 
-    pub fn close(self) {
-        drop(self);
-    }
-}
-
-impl Iterator for KEventDir {
-    type Item = io::Result<Event>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn poll(&mut self, timeout: Option<Duration>) -> Option<io::Result<Event>> {
         let mut ev = kevent {
             ident: 0,
             filter: EVFILT_VNODE,
@@ -175,6 +167,10 @@ impl Iterator for KEventDir {
             data: 0,
             udata: std::ptr::null_mut(),
         };
+        let timeout = timeout.map(|t| libc::timespec {
+            tv_sec: t.as_secs() as i64,
+            tv_nsec: t.subsec_nanos().into(),
+        });
 
         loop {
             let ret = unsafe {
@@ -184,7 +180,11 @@ impl Iterator for KEventDir {
                     0,
                     &mut ev,
                     1,
-                    std::ptr::null(),
+                    if timeout.is_some() {
+                        timeout.as_ref().unwrap()
+                    } else {
+                        std::ptr::null()
+                    },
                 )
             };
 
@@ -194,7 +194,7 @@ impl Iterator for KEventDir {
                     if err.kind() != io::ErrorKind::Interrupted {
                         return Some(Err(err));
                     }
-                },
+                }
                 0 => return None,
                 1 => (),
                 _ => panic!("Invalid return from kevent: {}", ret),
@@ -227,9 +227,21 @@ impl Iterator for KEventDir {
                     EventKind::Other
                 };
 
-                return Some(Ok(Event { path, kind }))
+                return Some(Ok(Event { path, kind }));
             }
         }
+    }
+
+    pub fn close(self) {
+        drop(self);
+    }
+}
+
+impl Iterator for KEventDir {
+    type Item = io::Result<Event>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.poll(None)
     }
 }
 
