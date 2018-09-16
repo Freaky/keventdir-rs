@@ -180,8 +180,8 @@ impl KEventDir {
                     0,
                     &mut ev,
                     1,
-                    if timeout.is_some() {
-                        timeout.as_ref().unwrap()
+                    if let Some(ref t) = timeout {
+                        t
                     } else {
                         std::ptr::null()
                     },
