@@ -147,15 +147,25 @@ impl KEventDir {
     }
 
     pub fn remove_recursive<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        let to_remove = self
-            .path_to_fd
-            .range(path.as_ref().to_path_buf()..)
-            .map(|(p, _fd)| p)
-            .take_while(|p| p.starts_with(&path))
-            .cloned()
-            .collect::<Vec<PathBuf>>();
+        let mut removed = 0;
+        loop {
+            let to_remove = self
+                .path_to_fd
+                .range(path.as_ref().to_path_buf()..)
+                .map(|(p, _fd)| p)
+                .take_while(|p| p.starts_with(&path))
+                .take(1024)
+                .cloned()
+                .collect::<Vec<PathBuf>>();
 
-        to_remove.iter().filter(|entry| self.remove(entry)).count()
+            if to_remove.is_empty() {
+                break;
+            }
+
+            removed += to_remove.iter().filter(|entry| self.remove(entry)).count();
+        }
+
+        removed
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>) -> Option<io::Result<Event>> {
