@@ -25,6 +25,12 @@ fn main() {
     for ev in watcher.by_ref().filter_map(|ev| ev.ok()).take(10) {
         println!("{}: {:?}", ev.path.display(), ev.kind);
     }
+
+    // You can also poll for events, either non-blocking or with a time limit
+    if let Some(ev) = watcher.poll(Some(Duration::from_secs(20))) {
+        let ev = ev.expect("kevent");
+        println!("{}: {:?}", ev.path.display(), ev.kind)
+    }
 }
 ```
 
