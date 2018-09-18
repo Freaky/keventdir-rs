@@ -1,16 +1,18 @@
 extern crate kqueue_sys;
 extern crate libc;
+extern crate qp_trie;
 extern crate walkdir;
 
 use kqueue_sys::constants::EventFilter::*;
 use kqueue_sys::constants::*;
 use kqueue_sys::*;
+use qp_trie::Trie;
 use walkdir::WalkDir;
 
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,7 +29,7 @@ pub struct KEventDir {
     kq: libc::c_int,
     scan: Vec<PathBuf>,
     fd_to_path: HashMap<RawFd, PathBuf>,
-    path_to_fd: BTreeMap<PathBuf, RawFd>,
+    path_to_fd: Trie<Vec<u8>, RawFd>,
 }
 
 #[derive(Debug)]
@@ -58,7 +60,7 @@ impl KEventDir {
             kq,
             scan: Vec::new(),
             fd_to_path: HashMap::new(),
-            path_to_fd: BTreeMap::new(),
+            path_to_fd: Trie::new(),
         })
     }
 
@@ -83,7 +85,7 @@ impl KEventDir {
     pub fn add<P: AsRef<Path>>(&mut self, path: P) -> io::Result<bool> {
         let path = path.as_ref();
 
-        if self.path_to_fd.contains_key(path) {
+        if self.path_to_fd.contains_key(path.as_os_str().as_bytes()) {
             return Ok(false);
         }
 
@@ -124,14 +126,15 @@ impl KEventDir {
             }
 
             self.fd_to_path.insert(fd, path.to_owned());
-            self.path_to_fd.insert(path.to_owned(), fd);
+            self.path_to_fd
+                .insert(path.as_os_str().as_bytes().to_vec(), fd);
             Ok(true)
         })
     }
 
     pub fn remove<P: AsRef<Path>>(&mut self, path: P) -> bool {
         self.path_to_fd
-            .remove(path.as_ref())
+            .remove(path.as_ref().as_os_str().as_bytes())
             .map(|fd| {
                 self.fd_to_path.remove(&fd);
                 unsafe { libc::close(fd) }; // removes kevent for us
@@ -147,25 +150,13 @@ impl KEventDir {
     }
 
     pub fn remove_recursive<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        let mut removed = 0;
-        loop {
-            let to_remove = self
-                .path_to_fd
-                .range(path.as_ref().to_path_buf()..)
-                .map(|(p, _fd)| p)
-                .take_while(|p| p.starts_with(&path))
-                .take(1024)
-                .cloned()
-                .collect::<Vec<PathBuf>>();
-
-            if to_remove.is_empty() {
-                break;
-            }
-
-            removed += to_remove.iter().filter(|entry| self.remove(entry)).count();
-        }
-
-        removed
+        self.path_to_fd
+            .remove_prefix(path.as_ref().as_os_str().as_bytes())
+            .iter()
+            .map(|(_p, fd)| {
+                self.fd_to_path.remove(fd);
+                unsafe { libc::close(*fd) };
+            }).count()
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>) -> Option<io::Result<Event>> {
