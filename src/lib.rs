@@ -150,13 +150,24 @@ impl KEventDir {
     }
 
     pub fn remove_recursive<P: AsRef<Path>>(&mut self, path: P) -> usize {
-        self.path_to_fd
-            .remove_prefix(path.as_ref().as_os_str().as_bytes())
-            .iter()
-            .map(|(_p, fd)| {
+        let mut subdirs = path.as_ref().as_os_str().as_bytes().to_vec();
+        if subdirs[subdirs.len() - 1] != b'/' {
+            subdirs.push(b'/');
+        }
+
+        let removed = self.path_to_fd
+            .remove_prefix(&subdirs)
+            .values()
+            .map(|fd| {
                 self.fd_to_path.remove(fd);
                 unsafe { libc::close(*fd) };
-            }).count()
+            }).count();
+
+        if self.remove(path) {
+            removed + 1
+        } else {
+            removed
+        }
     }
 
     pub fn poll(&mut self, timeout: Option<Duration>) -> Option<io::Result<Event>> {
